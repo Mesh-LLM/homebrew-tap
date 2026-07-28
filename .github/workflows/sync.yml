@@ -1,0 +1,111 @@
+name: Sync packaging release
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: homebrew-tap-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Validate and publish latest formula
+    runs-on: macos-15
+    timeout-minutes: 25
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tap
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Download and validate latest formula
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_json="$(gh api repos/Mesh-LLM/mesh-packaging/releases/latest)"
+          release_tag="$(jq -r '.tag_name' <<<"${release_json}")"
+          expected_version="${release_tag#packaging-v}"
+          formula_url="$(
+            jq -r '
+              [.assets[] | select(.name == "mesh-llm.rb")] |
+              if length == 1 then .[0].browser_download_url else error("expected exactly one mesh-llm.rb asset") end
+            ' <<<"${release_json}"
+          )"
+
+          curl --fail --location --silent --show-error \
+            --output "${RUNNER_TEMP}/mesh-llm.rb" \
+            "${formula_url}"
+          ruby -c "${RUNNER_TEMP}/mesh-llm.rb"
+
+          candidate_version="$(
+            ruby -ne "puts Regexp.last_match(1) if %r{/releases/download/v([^/]+)/}.match(\$_)" \
+              "${RUNNER_TEMP}/mesh-llm.rb"
+          )"
+          if [[ "${candidate_version}" != "${expected_version}" ]]; then
+            echo "Formula version ${candidate_version} does not match release ${release_tag}" >&2
+            exit 1
+          fi
+
+          current_version="$(
+            ruby -ne "puts Regexp.last_match(1) if %r{/releases/download/v([^/]+)/}.match(\$_)" \
+              Formula/mesh-llm.rb
+          )"
+          ruby -e '
+            require "rubygems"
+            abort "refusing formula downgrade" if Gem::Version.new(ARGV[0]) < Gem::Version.new(ARGV[1])
+          ' "${candidate_version}" "${current_version}"
+
+          cp "${RUNNER_TEMP}/mesh-llm.rb" "${RUNNER_TEMP}/candidate.rb"
+          if cmp --silent "${RUNNER_TEMP}/candidate.rb" Formula/mesh-llm.rb; then
+            changed=false
+          else
+            changed=true
+          fi
+          {
+            echo "candidate_version=${candidate_version}"
+            echo "current_version=${current_version}"
+            echo "changed=${changed}"
+          } >>"${GITHUB_OUTPUT}"
+        id: candidate
+
+      - name: Test candidate formula
+        if: steps.candidate.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          brew tap-new --no-git mesh-llm/validation
+          validation_tap="$(brew --repository mesh-llm/validation)"
+          cp "${RUNNER_TEMP}/candidate.rb" "${validation_tap}/Formula/mesh-llm.rb"
+          brew audit --strict --online mesh-llm/validation/mesh-llm
+          brew install mesh-llm/validation/mesh-llm
+          brew test mesh-llm/validation/mesh-llm
+
+      - name: Publish formula
+        if: steps.candidate.outputs.changed == 'true'
+        env:
+          VERSION: ${{ steps.candidate.outputs.candidate_version }}
+        run: |
+          set -euo pipefail
+          cp "${RUNNER_TEMP}/candidate.rb" Formula/mesh-llm.rb
+          git diff --check
+          git diff --exit-code -- Formula/mesh-llm.rb && {
+            echo "Formula is already current."
+            exit 0
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/mesh-llm.rb
+          git commit -m "Update mesh-llm to ${VERSION}"
+          git push
+
+      - name: Report current version
+        if: steps.candidate.outputs.changed == 'false'
+        env:
+          VERSION: ${{ steps.candidate.outputs.current_version }}
+        run: echo "Formula is already current at ${VERSION}."

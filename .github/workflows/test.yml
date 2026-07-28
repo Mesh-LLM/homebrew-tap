@@ -1,0 +1,43 @@
+name: Test tap
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-tap-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Install and test formula
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Tap exact revision
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -euo pipefail
+          brew tap Mesh-LLM/tap "${SERVER_URL}/${REPOSITORY}.git"
+          tap_path="$(brew --repository Mesh-LLM/tap)"
+          git -C "${tap_path}" fetch --depth=1 origin "${REVISION}"
+          git -C "${tap_path}" checkout --detach FETCH_HEAD
+
+      - name: Audit formula
+        run: brew audit --strict --online Mesh-LLM/tap/mesh-llm
+
+      - name: Install formula
+        run: brew install Mesh-LLM/tap/mesh-llm
+
+      - name: Test formula
+        run: brew test Mesh-LLM/tap/mesh-llm
