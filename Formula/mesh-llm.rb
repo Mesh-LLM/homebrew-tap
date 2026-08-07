@@ -1,18 +1,89 @@
 class MeshLlm < Formula
   desc "Local mesh-llm CLI runtime"
   homepage "https://github.com/Mesh-LLM/mesh-llm"
-  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.74.0/mesh-llm-v0.74.0-aarch64-apple-darwin.tar.gz"
-  sha256 "b399c819d7c57584add3a047cb1cb45b5862583120e608608e6afb62d400cb36"
+  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.75.0/mesh-llm-v0.75.0-aarch64-apple-darwin.tar.gz"
+  sha256 "6fbe7a87ca95c338924160697f47204abb332397a315594204ea54c3517e0992"
   license any_of: ["MIT", "Apache-2.0"]
 
   depends_on arch: :arm64
 
   def install
-    # Homebrew strips the archive's single mesh-bundle/ top-level directory.
     bin.install "mesh-llm"
+    libexec.install "native-runtimes"
+    libexec.install "product-manifest.json"
+    libexec.install "host-imports.json"
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/mesh-llm --version")
+    assert_match "native runtime", shell_output("#{bin}/mesh-llm runtime list")
+    assert_path_exists libexec/"product-manifest.json"
+
+    require "json"
+    require "timeout"
+
+    smoke_root = testpath/"client-readiness"
+    log = smoke_root/"client.jsonl"
+    runtime_root = smoke_root/"runtime"
+    port = free_port
+    console = free_port
+    console = free_port while console == port
+    pid = fork do
+      ENV["HOME"] = (smoke_root/"home").to_s
+      ENV["XDG_CACHE_HOME"] = (smoke_root/"cache").to_s
+      ENV["XDG_CONFIG_HOME"] = (smoke_root/"config").to_s
+      ENV["XDG_RUNTIME_DIR"] = runtime_root.to_s
+      ENV["MESH_LLM_RUNTIME_ROOT"] = runtime_root.to_s
+      ENV["MESH_LLM_NATIVE_RUNTIME_CACHE_DIR"] = (smoke_root/"native-runtime-cache").to_s
+      [smoke_root/"home", smoke_root/"cache", smoke_root/"config", runtime_root,
+       smoke_root/"native-runtime-cache"].each(&:mkpath)
+      log.open("w") do |file|
+        $stdout.reopen(file)
+        $stderr.reopen(file)
+        exec bin/"mesh-llm", "--log-format", "json", "--port", port.to_s,
+             "--console", console.to_s, "--no-console", "client"
+      end
+    end
+
+    ready = false
+    45.times do
+      ready = log.exist? && log.each_line.any? do |line|
+        event = JSON.parse(line)
+        event["message"].to_s.include?("Client ready") ||
+          (event["event"] == "passive_mode" && event["status"] == "ready" && event["role"] == "client")
+      rescue JSON::ParserError
+        false
+      end
+      break if ready && Process.kill(0, pid)
+
+      sleep 1
+    rescue Errno::ESRCH
+      break
+    end
+
+    begin
+      flunk "mesh-llm client did not reach Client ready: #{log.exist? ? log.read : "no log"}" unless ready
+      assert Process.kill(0, pid), "mesh-llm client exited after readiness"
+    ensure
+      begin
+        Process.kill("INT", pid) if Process.kill(0, pid)
+        _, status = Timeout.timeout(10) { Process.wait2(pid) }
+        assert_predicate status, :success?, "mesh-llm client did not shut down cleanly"
+      rescue Errno::ESRCH, Errno::ECHILD
+        flunk "mesh-llm client exited before bounded SIGINT shutdown"
+      rescue Timeout::Error
+        begin
+          Process.kill("TERM", pid)
+        rescue Errno::ESRCH
+          nil
+        end
+        begin
+          Process.wait(pid)
+        rescue Errno::ECHILD
+          nil
+        end
+        flunk "mesh-llm client did not stop within 10 seconds of SIGINT"
+      end
+    end
   end
 end
