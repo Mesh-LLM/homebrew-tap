@@ -1,23 +1,44 @@
 class MeshLlm < Formula
   desc "Local mesh-llm CLI runtime"
   homepage "https://github.com/Mesh-LLM/mesh-llm"
-  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.75.1/mesh-llm-v0.75.1-aarch64-apple-darwin.tar.gz"
-  sha256 "63477652ab1f97be4f0d0e85b1e5e88146472b51ef7036fb94886c067c3c86ff"
+  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.76.0/mesh-llm-v0.76.0-aarch64-apple-darwin.tar.gz"
+  sha256 "e1b85302bf7c133ca577d285cb1919fc2320ec6f84e7648d1d1402509e8ea611"
   license any_of: ["MIT", "Apache-2.0"]
 
   depends_on arch: :arm64
 
   def install
     bin.install "mesh-llm"
-    libexec.install "native-runtimes"
     libexec.install "product-manifest.json"
     libexec.install "host-imports.json"
+
+    # The native runtime manifest records a SHA-256 for every runtime file and
+    # the loader refuses a runtime whose files have changed. Keg relocation
+    # rewrites install names and re-signs every Mach-O file, which invalidates
+    # all of them, so stage the runtime as an archive here and unpack it in
+    # `post_install_steps`, once relocation has run. The runtime needs no
+    # relocation: its libraries link only against system libraries and resolve
+    # each other through @loader_path.
+    system "tar", "czf", libexec/"native-runtime.tar.gz", "native-runtimes"
+  end
+
+  post_install_steps do
+    run "/usr/bin/tar",
+        args:           ["xzf", "{{libexec}}/native-runtime.tar.gz", "-C", "{{libexec}}"],
+        writable_paths: ["{{libexec}}"]
   end
 
   test do
     assert_match version.to_s, shell_output("#{bin}/mesh-llm --version")
-    assert_match "native runtime", shell_output("#{bin}/mesh-llm runtime list")
     assert_path_exists libexec/"product-manifest.json"
+
+    # `runtime list` prints a warning naming any runtime it rejected and still
+    # exits 0, so assert that the runtime was actually discovered rather than
+    # matching text that a rejection also prints.
+    runtimes = shell_output("#{bin}/mesh-llm runtime list")
+    assert_match "meshllm-native-runtime-darwin-aarch64-metal", runtimes
+    refute_match "malformed native runtime", runtimes
+    refute_match "No local native runtimes found", runtimes
 
     require "json"
     require "timeout"
