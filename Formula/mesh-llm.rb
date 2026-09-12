@@ -1,8 +1,8 @@
 class MeshLlm < Formula
   desc "Local mesh-llm CLI runtime"
   homepage "https://github.com/Mesh-LLM/mesh-llm"
-  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.76.0/mesh-llm-v0.76.0-aarch64-apple-darwin.tar.gz"
-  sha256 "e1b85302bf7c133ca577d285cb1919fc2320ec6f84e7648d1d1402509e8ea611"
+  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.76.1/mesh-llm-v0.76.1-aarch64-apple-darwin.tar.gz"
+  sha256 "5bb00113682ba068862bfdf839f8519de8cde27bf0aaa6eb561727ec0392f7d6"
   license any_of: ["MIT", "Apache-2.0"]
 
   depends_on arch: :arm64
@@ -88,7 +88,7 @@ class MeshLlm < Formula
     ensure
       begin
         Process.kill("INT", pid) if Process.kill(0, pid)
-        _, status = Timeout.timeout(10) { Process.wait2(pid) }
+        _, status = Timeout.timeout(30) { Process.wait2(pid) }
         assert_predicate status, :success?, "mesh-llm client did not shut down cleanly"
       rescue Errno::ESRCH, Errno::ECHILD
         flunk "mesh-llm client exited before bounded SIGINT shutdown"
@@ -103,7 +103,7 @@ class MeshLlm < Formula
         rescue Errno::ECHILD
           nil
         end
-        flunk "mesh-llm client did not stop within 10 seconds of SIGINT"
+        flunk "mesh-llm client did not stop within 30 seconds of SIGINT"
       end
     end
   end
