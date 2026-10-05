@@ -1,8 +1,8 @@
 class MeshLlm < Formula
   desc "Local mesh-llm CLI runtime"
   homepage "https://github.com/Mesh-LLM/mesh-llm"
-  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.78.0/mesh-llm-v0.78.0-aarch64-apple-darwin.tar.gz"
-  sha256 "c739f3d89ab3137a64528a17ab85b6a06cc9912da5fdec5cfe4e8a5a1ec38aaa"
+  url "https://github.com/Mesh-LLM/mesh-llm/releases/download/v0.78.1/mesh-llm-v0.78.1-aarch64-apple-darwin.tar.gz"
+  sha256 "a00fd8c7c3d4cf5a543c83b2034dcf7a7cfe02198f9056faa09305d774ae5001"
   license any_of: ["MIT", "Apache-2.0"]
 
   depends_on arch: :arm64
