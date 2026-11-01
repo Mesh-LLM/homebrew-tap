@@ -34,8 +34,8 @@ mirrors the `mesh-llm.rb` asset from the latest non-prerelease packaging
 release after validating and testing it.
 
 Both validation workflows trust only the formula they audit before loading it.
-An unchanged scheduled sync skips installation. To exercise the complete sync
-validation path without publishing, run:
+An unchanged scheduled sync skips `brew audit`, `brew install`, and `brew test`.
+To exercise the complete sync validation path without publishing, run:
 
 ```bash
 gh workflow run sync.yml --repo Mesh-LLM/homebrew-tap -f dry_run=true
