@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "17 */6 * * *"
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate the latest formula without publishing, even when unchanged
+        type: boolean
+        required: true
+        default: true
 
 permissions:
   contents: read
@@ -76,18 +82,19 @@ jobs:
         id: candidate
 
       - name: Test candidate formula
-        if: steps.candidate.outputs.changed == 'true'
+        if: steps.candidate.outputs.changed == 'true' || inputs.dry_run == true
         run: |
           set -euo pipefail
           brew tap-new --no-git mesh-llm/validation
           validation_tap="$(brew --repository mesh-llm/validation)"
           cp "${RUNNER_TEMP}/candidate.rb" "${validation_tap}/Formula/mesh-llm.rb"
+          brew trust --formula mesh-llm/validation/mesh-llm
           brew audit --strict --online mesh-llm/validation/mesh-llm
           brew install mesh-llm/validation/mesh-llm
           brew test mesh-llm/validation/mesh-llm
 
       - name: Publish formula
-        if: steps.candidate.outputs.changed == 'true'
+        if: steps.candidate.outputs.changed == 'true' && inputs.dry_run != true
         env:
           VERSION: ${{ steps.candidate.outputs.candidate_version }}
         run: |

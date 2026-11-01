@@ -33,6 +33,18 @@ canonical source for the rendered formula. This repository automatically
 mirrors the `mesh-llm.rb` asset from the latest non-prerelease packaging
 release after validating and testing it.
 
+Both validation workflows trust only the formula they audit before loading it.
+An unchanged scheduled sync skips `brew audit`, `brew install`, and `brew test`.
+To exercise the complete sync validation path without publishing, run:
+
+```bash
+gh workflow run sync.yml --repo Mesh-LLM/homebrew-tap -f dry_run=true
+```
+
+Manual runs default to this dry run and validate even an unchanged formula.
+Scheduled runs continue publishing changed formulas after validation. A manual
+run with `dry_run=false` can also publish a changed formula.
+
 Report packaging problems in
 [`Mesh-LLM/mesh-packaging`](https://github.com/Mesh-LLM/mesh-packaging/issues)
 and runtime problems in
